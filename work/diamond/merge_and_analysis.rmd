@@ -1,0 +1,92 @@
+---
+title: "merge_diamond"
+author: "Bipin"
+date: "4/6/2021"
+output: html_document
+---
+
+```{r}
+rm(list=ls())
+setwd(".")
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(purrr)
+```
+
+
+```{r}
+countsMerge = function(pattern,mypath){
+  filenames=list.files(path=mypath, pattern=paste0(pattern),full.names = T)
+  names(filenames)<-basename(filenames)
+  datalist = lapply(filenames, function(x) read.table(x,header=F,col.names=c(x,"Gene")))
+  Reduce(function(x,y) {merge(x,y,by="Gene",all=TRUE)}, datalist)
+  }
+```
+
+
+```{r}
+pattern="K01442_K01442"
+mypath="06.counts"
+final_counts<-countsMerge(pattern,mypath)
+write.csv(final_counts,paste0(pattern,"_merged.csv"))
+```
+
+```{r}
+final_counts[is.na(final_counts)]<-0
+final_counts<-final_counts[rowSums(final_counts[-1])>2500,]
+hist(rowSums(final_counts[-1]))
+```
+
+```{r}
+head(final_counts)
+final_counts2<-final_counts%>%mutate_at(vars(-Gene),funs(./sum(.)))
+```
+
+Get metadata
+```{r}
+metadata<-data.frame(sampleID=colnames(final_counts2[-1]))
+metadata
+metadata<-metadata%>%separate(sampleID,c("Group","Number"),sep=1,remove = F)
+metadata
+```
+
+```{r}
+stats_anova<-final_counts2 %>%gather(-Gene, key=Sample,value=Counts)%>%left_join(metadata,by=c("Sample" = "sampleID"))%>%select(-Number)
+stats_anova$Group<-factor(stats_anova$Group)
+stats_anova
+```
+
+```{r}
+stats_anova %>% group_by(Gene,Group) %>%
+  summarise(
+    count_gene=n(),
+    mean_counts=mean(Counts,na.rm=TRUE),
+    sd_counts=sd(Counts,na.rm=TRUE)
+  )
+```
+
+```{r}
+ggplot(stats_anova, aes(x = Gene, y = Counts, fill = Group)) +
+    geom_boxplot() +
+    geom_jitter(shape = 15,
+        color = "steelblue",
+        position = position_jitter(0.21)) +
+    theme_classic()
+```
+```{r}
+stats_anova %>% group_by(Gene,Group) %>%
+  summarise(
+    count_gene=n(),
+    mean_counts=mean(Counts,na.rm=TRUE),
+    sd_counts=sd(Counts,na.rm=TRUE)
+  )
+```
+
+
+```{r}
+anova<-stats_anova %>% nest(-Gene) %>%
+  mutate(model=map(data,~anova(lm(Counts ~ Group, .)))) %>%
+  select(Gene) 
+```
+
